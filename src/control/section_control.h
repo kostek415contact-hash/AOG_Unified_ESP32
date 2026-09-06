@@ -10,6 +10,7 @@
 #include <Wire.h>
 #include "../config/config.h"
 #include "../config/pins_config.h"
+#include "../config/thread_safety.h"
 
 #define MCP23017_IODIRA   0x00
 #define MCP23017_IODIRB   0x01
@@ -27,19 +28,30 @@ struct SectionState {
 SectionState sectionState;
 
 bool mcp23017_write_register(uint8_t reg, uint8_t value) {
+    if (!lock_i2c()) return false;
     Wire.beginTransmission(GPIO_EXPANDER_MCP23017_ADDR);
     Wire.write(reg);
     Wire.write(value);
-    return (Wire.endTransmission() == 0);
+    bool ok = (Wire.endTransmission() == 0);
+    unlock_i2c();
+    return ok;
 }
 
 bool mcp23017_read_register(uint8_t reg, uint8_t &value) {
+    if (!lock_i2c()) return false;
     Wire.beginTransmission(GPIO_EXPANDER_MCP23017_ADDR);
     Wire.write(reg);
-    if (Wire.endTransmission() != 0) return false;
+    if (Wire.endTransmission() != 0) {
+        unlock_i2c();
+        return false;
+    }
     Wire.requestFrom(GPIO_EXPANDER_MCP23017_ADDR, 1);
-    if (Wire.available() < 1) return false;
+    if (Wire.available() < 1) {
+        unlock_i2c();
+        return false;
+    }
     value = Wire.read();
+    unlock_i2c();
     return true;
 }
 

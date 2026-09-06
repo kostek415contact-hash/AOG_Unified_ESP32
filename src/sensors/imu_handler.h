@@ -10,6 +10,7 @@
 #include <math.h>
 #include "../config/config.h"
 #include "../config/pins_config.h"
+#include "../config/thread_safety.h"
 
 // ============================================
 // IMU CONFIGURATION
@@ -123,7 +124,11 @@ bool imu_init() {
     Serial.print(IMU1_BNO085_ADDR, HEX);
     Serial.println(")...");
     
-    if (!imu1_sensor.begin_I2C(IMU1_BNO085_ADDR)) {
+    bool imu1Locked = lock_i2c();
+    if (!imu1Locked) {
+        Serial.println("  ERROR: I2C mutex timeout for BNO085 #1");
+        imu1_initialized = false;
+    } else if (!imu1_sensor.begin_I2C(IMU1_BNO085_ADDR)) {
         Serial.println("  ERROR: BNO085 #1 not found!");
         imu1_initialized = false;
     } else {
@@ -135,6 +140,7 @@ bool imu_init() {
         imu1_initialized = true;
         imu1_data.dataReady = false;
     }
+    if (imu1Locked) unlock_i2c();
     
     delay(100);
     
@@ -143,7 +149,11 @@ bool imu_init() {
     Serial.print(IMU2_BNO085_ADDR, HEX);
     Serial.println(")...");
     
-    if (!imu2_sensor.begin_I2C(IMU2_BNO085_ADDR)) {
+    bool imu2Locked = lock_i2c();
+    if (!imu2Locked) {
+        Serial.println("  ERROR: I2C mutex timeout for BNO085 #2");
+        imu2_initialized = false;
+    } else if (!imu2_sensor.begin_I2C(IMU2_BNO085_ADDR)) {
         Serial.println("  ERROR: BNO085 #2 not found!");
         imu2_initialized = false;
     } else {
@@ -155,6 +165,7 @@ bool imu_init() {
         imu2_initialized = true;
         imu2_data.dataReady = false;
     }
+    if (imu2Locked) unlock_i2c();
     
     Serial.print("[IMU] Initialization: ");
     if (imu1_initialized || imu2_initialized) {
@@ -174,106 +185,64 @@ bool imu_read() {
     bool dataAvailable = false;
     
     // Read IMU #1
-    if (imu1_initialized && imu1_sensor.hasNewData()) {
-        if (imu1_sensor.getSensorEvent(&imu1_sensorValue)) {
-            if (imu1_sensorValue.sensorId == SH2_GAME_ROTATION_VECTOR) {
-                // Store quaternion
+    if (imu1_initialized) {
+        bool imu1Locked = lock_i2c();
+        if (imu1Locked) {
+            if (imu1_sensor.hasNewData() && imu1_sensor.getSensorEvent(&imu1_sensorValue) &&
+                imu1_sensorValue.sensorId == SH2_GAME_ROTATION_VECTOR &&
+                lock_shared_data()) {
                 imu1_data.qx = imu1_sensorValue.un.gameRotationVector.i;
                 imu1_data.qy = imu1_sensorValue.un.gameRotationVector.j;
                 imu1_data.qz = imu1_sensorValue.un.gameRotationVector.k;
                 imu1_data.qw = imu1_sensorValue.un.gameRotationVector.real;
-                
-                // Convert quaternion to Euler angles
                 quaternion_to_euler(imu1_data.qx, imu1_data.qy, imu1_data.qz, imu1_data.qw,
                                    imu1_data.heading, imu1_data.roll, imu1_data.pitch);
-                
-                // Apply calibration offsets
                 imu1_data.heading -= imu1_cal.headingOffset;
                 imu1_data.roll -= imu1_cal.rollOffset;
                 imu1_data.pitch -= imu1_cal.pitchOffset;
-                
-                // Normalize heading
-                if (imu1_data.heading < 0.0f) {
-                    imu1_data.heading += 360.0f;
-                }
-                if (imu1_data.heading >= 360.0f) {
-                    imu1_data.heading -= 360.0f;
-                }
-                
-                // Clamp roll
-                if (imu1_data.roll > 180.0f) {
-                    imu1_data.roll -= 360.0f;
-                }
-                if (imu1_data.roll < -180.0f) {
-                    imu1_data.roll += 360.0f;
-                }
-                
+                if (imu1_data.heading < 0.0f) imu1_data.heading += 360.0f;
+                if (imu1_data.heading >= 360.0f) imu1_data.heading -= 360.0f;
+                if (imu1_data.roll > 180.0f) imu1_data.roll -= 360.0f;
+                if (imu1_data.roll < -180.0f) imu1_data.roll += 360.0f;
                 imu1_data.hasNewData = true;
                 imu1_data.dataReady = true;
                 imu1_data.lastUpdate = millis();
                 imu1_data.readCount++;
                 dataAvailable = true;
-                
-                if (DEBUG_LEVEL >= 3) {
-                    Serial.print("[IMU1] H:");
-                    Serial.print(imu1_data.heading, 1);
-                    Serial.print("° R:");
-                    Serial.print(imu1_data.roll, 1);
-                    Serial.println("°");
-                }
+                unlock_shared_data();
             }
+            unlock_i2c();
         }
     }
     
     // Read IMU #2
-    if (imu2_initialized && imu2_sensor.hasNewData()) {
-        if (imu2_sensor.getSensorEvent(&imu2_sensorValue)) {
-            if (imu2_sensorValue.sensorId == SH2_GAME_ROTATION_VECTOR) {
-                // Store quaternion
+    if (imu2_initialized) {
+        bool imu2Locked = lock_i2c();
+        if (imu2Locked) {
+            if (imu2_sensor.hasNewData() && imu2_sensor.getSensorEvent(&imu2_sensorValue) &&
+                imu2_sensorValue.sensorId == SH2_GAME_ROTATION_VECTOR &&
+                lock_shared_data()) {
                 imu2_data.qx = imu2_sensorValue.un.gameRotationVector.i;
                 imu2_data.qy = imu2_sensorValue.un.gameRotationVector.j;
                 imu2_data.qz = imu2_sensorValue.un.gameRotationVector.k;
                 imu2_data.qw = imu2_sensorValue.un.gameRotationVector.real;
-                
-                // Convert quaternion to Euler angles
                 quaternion_to_euler(imu2_data.qx, imu2_data.qy, imu2_data.qz, imu2_data.qw,
                                    imu2_data.heading, imu2_data.roll, imu2_data.pitch);
-                
-                // Apply calibration offsets
                 imu2_data.heading -= imu2_cal.headingOffset;
                 imu2_data.roll -= imu2_cal.rollOffset;
                 imu2_data.pitch -= imu2_cal.pitchOffset;
-                
-                // Normalize heading
-                if (imu2_data.heading < 0.0f) {
-                    imu2_data.heading += 360.0f;
-                }
-                if (imu2_data.heading >= 360.0f) {
-                    imu2_data.heading -= 360.0f;
-                }
-                
-                // Clamp roll
-                if (imu2_data.roll > 180.0f) {
-                    imu2_data.roll -= 360.0f;
-                }
-                if (imu2_data.roll < -180.0f) {
-                    imu2_data.roll += 360.0f;
-                }
-                
+                if (imu2_data.heading < 0.0f) imu2_data.heading += 360.0f;
+                if (imu2_data.heading >= 360.0f) imu2_data.heading -= 360.0f;
+                if (imu2_data.roll > 180.0f) imu2_data.roll -= 360.0f;
+                if (imu2_data.roll < -180.0f) imu2_data.roll += 360.0f;
                 imu2_data.hasNewData = true;
                 imu2_data.dataReady = true;
                 imu2_data.lastUpdate = millis();
                 imu2_data.readCount++;
                 dataAvailable = true;
-                
-                if (DEBUG_LEVEL >= 3) {
-                    Serial.print("[IMU2] H:");
-                    Serial.print(imu2_data.heading, 1);
-                    Serial.print("° R:");
-                    Serial.print(imu2_data.roll, 1);
-                    Serial.println("°");
-                }
+                unlock_shared_data();
             }
+            unlock_i2c();
         }
     }
     
@@ -285,6 +254,20 @@ bool imu_read() {
 // ============================================
 
 IMUSensorData imu_get_data(int sensorId) {
+    if (lock_shared_data()) {
+        if (sensorId == 1) {
+            imu1_data.hasNewData = false;
+            IMUSensorData data = imu1_data;
+            unlock_shared_data();
+            return data;
+        } else {
+            imu2_data.hasNewData = false;
+            IMUSensorData data = imu2_data;
+            unlock_shared_data();
+            return data;
+        }
+    }
+
     if (sensorId == 1) {
         imu1_data.hasNewData = false;
         return imu1_data;
@@ -300,6 +283,28 @@ IMUSensorData imu_get_data(int sensorId) {
 
 IMUSensorData imu_get_fused_data() {
     IMUSensorData fused = imu1_data;  // Start with IMU1
+    if (lock_shared_data()) {
+        fused = imu1_data;
+        if (imu1_initialized && imu2_initialized) {
+            // Average heading (handle wrap-around)
+            float h1 = imu1_data.heading;
+            float h2 = imu2_data.heading;
+            float dh = h2 - h1;
+            if (dh > 180.0f) dh -= 360.0f;
+            if (dh < -180.0f) dh += 360.0f;
+            fused.heading = h1 + dh * 0.5f;
+            if (fused.heading < 0.0f) fused.heading += 360.0f;
+            if (fused.heading >= 360.0f) fused.heading -= 360.0f;
+            
+            // Average roll
+            fused.roll = (imu1_data.roll + imu2_data.roll) * 0.5f;
+            
+            // Average pitch
+            fused.pitch = (imu1_data.pitch + imu2_data.pitch) * 0.5f;
+        }
+        unlock_shared_data();
+        return fused;
+    }
     
     if (imu1_initialized && imu2_initialized) {
         // Average heading (handle wrap-around)

@@ -10,6 +10,7 @@
 #include "ethernet_handler.h"
 #include "wifi_handler.h"
 #include "../config/config.h"
+#include "../config/thread_safety.h"
 
 // ============================================
 // NETWORK STATE
@@ -142,7 +143,12 @@ void network_maintain() {
 // ============================================
 
 bool network_send_data(byte *data, int len) {
-    switch (netNetwork.mode) {
+    NetworkMode mode = netNetwork.mode;
+    if (lock_shared_data()) {
+        mode = netNetwork.mode;
+        unlock_shared_data();
+    }
+    switch (mode) {
         case NET_ETHERNET:
             return ethernet_send_broadcast(data, len);
             
@@ -156,7 +162,12 @@ bool network_send_data(byte *data, int len) {
 }
 
 bool network_send_to_address(byte *data, int len, IPAddress destIP, int destPort) {
-    switch (netNetwork.mode) {
+    NetworkMode mode = netNetwork.mode;
+    if (lock_shared_data()) {
+        mode = netNetwork.mode;
+        unlock_shared_data();
+    }
+    switch (mode) {
         case NET_ETHERNET:
             return ethernet_send_data(data, len, destIP, destPort);
             
@@ -174,11 +185,21 @@ bool network_send_to_address(byte *data, int len, IPAddress destIP, int destPort
 // ============================================
 
 bool network_is_connected() {
-    return netNetwork.mode != NET_DISCONNECTED;
+    NetworkMode mode = netNetwork.mode;
+    if (lock_shared_data()) {
+        mode = netNetwork.mode;
+        unlock_shared_data();
+    }
+    return mode != NET_DISCONNECTED;
 }
 
 const char* network_get_mode_string() {
-    switch (netNetwork.mode) {
+    NetworkMode mode = netNetwork.mode;
+    if (lock_shared_data()) {
+        mode = netNetwork.mode;
+        unlock_shared_data();
+    }
+    switch (mode) {
         case NET_ETHERNET:
             return "Ethernet";
         case NET_WIFI_STA:
@@ -193,7 +214,12 @@ const char* network_get_mode_string() {
 }
 
 IPAddress network_get_local_ip() {
-    switch (netNetwork.mode) {
+    NetworkMode mode = netNetwork.mode;
+    if (lock_shared_data()) {
+        mode = netNetwork.mode;
+        unlock_shared_data();
+    }
+    switch (mode) {
         case NET_ETHERNET:
             return ethState.localIP;
         case NET_WIFI_STA:

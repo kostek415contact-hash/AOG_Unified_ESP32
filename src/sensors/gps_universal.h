@@ -10,9 +10,11 @@
 
 #include <HardwareSerial.h>
 #include <math.h>
+#include <stdlib.h>
 #include "../config/gps_config.h"
 #include "../config/config.h"
 #include "../config/pins_config.h"
+#include "../config/thread_safety.h"
 
 // ============================================
 // PROTOCOL TYPES
@@ -100,6 +102,7 @@ GPSState gps_state;
 
 byte gps_buffer[GPS_NMEA_BUFFER_SIZE];
 int gps_buffer_index = 0;
+bool gps_in_frame = false;
 
 HardwareSerial *gps_serial = NULL;
 
@@ -157,52 +160,103 @@ bool verify_nmea_checksum(const char *sentence) {
 // NMEA PARSING
 // ============================================
 
-bool parse_nmea_rmc(const char *sentence) {
-    char time[16], lat_str[16], lat_dir, lon_str[16], lon_dir, status;
-    float speed, heading;
-    int date;
-    
-    int parsed = sscanf(sentence, "$GPRMC,%[^,],%c,%[^,],%c,%[^,],%c,%f,%f,%d",
-                        time, &status, lat_str, &lat_dir, lon_str, &lon_dir,
-                        &speed, &heading, &date);
-    
-    // Also try GNRMC (GLONASS)
-    if (parsed < 9) {
-        parsed = sscanf(sentence, "$GNRMC,%[^,],%c,%[^,],%c,%[^,],%c,%f,%f,%d",
-                        time, &status, lat_str, &lat_dir, lon_str, &lon_dir,
-                        &speed, &heading, &date);
+bool nmea_split_fields(const char *sentence, char fields[][20], int max_fields, int &field_count) {
+    field_count = 0;
+    if (sentence == NULL || sentence[0] != '$') return false;
+
+    const char *p = sentence + 1;
+    int char_index = 0;
+    bool started = false;
+
+    while (*p && *p != '*') {
+        if (field_count >= max_fields) break;
+
+        if (!started) {
+            started = true;
+            char_index = 0;
+            fields[field_count][0] = '\0';
+        }
+
+        if (*p == ',') {
+            fields[field_count][char_index] = '\0';
+            field_count++;
+            started = false;
+        } else if (char_index < 19) {
+            fields[field_count][char_index++] = *p;
+        }
+        p++;
     }
-    
-    if (parsed < 9 || status != 'A') {
+
+    if (started && field_count < max_fields) {
+        fields[field_count][char_index] = '\0';
+        field_count++;
+    }
+
+    return field_count > 0;
+}
+
+bool nmea_sentence_is(const char *type_token, const char *suffix3) {
+    if (type_token == NULL || suffix3 == NULL) return false;
+    size_t len = strlen(type_token);
+    if (len < 3) return false;
+    return strcmp(type_token + len - 3, suffix3) == 0;
+}
+
+double nmea_parse_coordinate(const char *value, char direction, bool is_latitude) {
+    if (value == NULL || value[0] == '\0') return 0.0;
+
+    double raw = atof(value);
+    int deg_digits = is_latitude ? 2 : 3;
+    double divisor = 1.0;
+    for (int i = 0; i < deg_digits; i++) divisor *= 10.0;
+
+    int degrees = (int)(raw / divisor);
+    double minutes = raw - ((double)degrees * divisor);
+    double result = (double)degrees + (minutes / 60.0);
+
+    if (direction == 'S' || direction == 'W') result = -result;
+    return result;
+}
+
+bool parse_nmea_rmc(const char *sentence) {
+    char fields[20][20];
+    int field_count = 0;
+    if (!nmea_split_fields(sentence, fields, 20, field_count) || field_count < 9) {
         return false;
     }
-    
-    // Parse latitude: ddmm.mmmm
-    float lat_deg = atof(lat_str) / 100.0f;
-    float lat_min = fmod(atof(lat_str), 100.0f);
-    gps_data.latitude = lat_deg + (lat_min / 60.0f);
-    if (lat_dir == 'S') gps_data.latitude = -gps_data.latitude;
-    
-    // Parse longitude: dddmm.mmmm
-    float lon_deg = atof(lon_str) / 100.0f;
-    float lon_min = fmod(atof(lon_str), 100.0f);
-    gps_data.longitude = lon_deg + (lon_min / 60.0f);
-    if (lon_dir == 'W') gps_data.longitude = -gps_data.longitude;
-    
-    gps_data.speed_knots = speed;
-    gps_data.speed_kmh = speed * 1.852f;
-    gps_data.speed_ms = speed * 0.51444f;
-    gps_data.heading = heading;
-    
-    gps_data.hasValidData = true;
-    gps_data.lastUpdate = millis();
-    gps_data.nmea_count++;
+
+    if (!nmea_sentence_is(fields[0], "RMC")) {
+        return false;
+    }
+
+    char status = fields[2][0];
+    if (status != 'A') {
+        return false;
+    }
+
+    double latitude = nmea_parse_coordinate(fields[3], fields[4][0], true);
+    double longitude = nmea_parse_coordinate(fields[5], fields[6][0], false);
+    float speed = (fields[7][0] == '\0') ? 0.0f : atof(fields[7]);
+    float heading = (fields[8][0] == '\0') ? 0.0f : atof(fields[8]);
+
+    if (lock_shared_data()) {
+        gps_data.latitude = latitude;
+        gps_data.longitude = longitude;
+        gps_data.speed_knots = speed;
+        gps_data.speed_kmh = speed * 1.852f;
+        gps_data.speed_ms = speed * 0.51444f;
+        gps_data.heading = heading;
+        gps_data.hasValidData = true;
+        gps_data.lastUpdate = millis();
+        gps_data.nmea_count++;
+        unlock_shared_data();
+    }
     
     if (DEBUG_LEVEL >= 3) {
         Serial.print("[GPS-RMC] Lat=");
-        Serial.print(gps_data.latitude, 6);
+        Serial.print(latitude, 6);
         Serial.print(" Lon=");
-        Serial.print(gps_data.longitude, 6);
+        Serial.print(longitude, 6);
         Serial.println();
     }
     
@@ -210,57 +264,58 @@ bool parse_nmea_rmc(const char *sentence) {
 }
 
 bool parse_nmea_gga(const char *sentence) {
-    char time[16], lat_str[16], lat_dir, lon_str[16], lon_dir;
-    int quality, numSats;
-    float hdop, altitude;
-    
-    int parsed = sscanf(sentence, "$GPGGA,%[^,],%[^,],%c,%[^,],%c,%d,%d,%f,%f",
-                        time, lat_str, &lat_dir, lon_str, &lon_dir,
-                        &quality, &numSats, &hdop, &altitude);
-    
-    // Also try GNGGA (multi-GNSS)
-    if (parsed < 9) {
-        parsed = sscanf(sentence, "$GNGGA,%[^,],%[^,],%c,%[^,],%c,%d,%d,%f,%f",
-                        time, lat_str, &lat_dir, lon_str, &lon_dir,
-                        &quality, &numSats, &hdop, &altitude);
+    char fields[20][20];
+    int field_count = 0;
+    if (!nmea_split_fields(sentence, fields, 20, field_count) || field_count < 10) {
+        return false;
     }
-    
-    if (parsed < 9) return false;
-    
-    // Map quality levels
+
+    if (!nmea_sentence_is(fields[0], "GGA")) {
+        return false;
+    }
+
+    int quality = (fields[6][0] == '\0') ? 0 : atoi(fields[6]);
+    int numSats = (fields[7][0] == '\0') ? 0 : atoi(fields[7]);
+    float hdop = (fields[8][0] == '\0') ? 999.9f : atof(fields[8]);
+    float altitude = (fields[9][0] == '\0') ? 0.0f : atof(fields[9]);
+    bool hasCoordinates = (fields[2][0] != '\0' && fields[3][0] != '\0' &&
+                           fields[4][0] != '\0' && fields[5][0] != '\0');
+
+    GPSFixQuality fixQuality = FIX_NONE;
+    bool hasRTKFix = false;
     switch (quality) {
-        case 0: gps_data.fixQuality = FIX_NONE; return false;
-        case 1: gps_data.fixQuality = FIX_GPS; break;
-        case 2: gps_data.fixQuality = FIX_DGPS; break;
-        case 4: gps_data.fixQuality = FIX_RTK; gps_data.hasRTKFix = true; break;
-        case 5: gps_data.fixQuality = FIX_RTK_FLOAT; break;
+        case 0: return false;
+        case 1: fixQuality = FIX_GPS; break;
+        case 2: fixQuality = FIX_DGPS; break;
+        case 4: fixQuality = FIX_RTK; hasRTKFix = true; break;
+        case 5: fixQuality = FIX_RTK_FLOAT; break;
         default: return false;
     }
-    
-    // Parse position
-    float lat_deg = atof(lat_str) / 100.0f;
-    float lat_min = fmod(atof(lat_str), 100.0f);
-    gps_data.latitude = lat_deg + (lat_min / 60.0f);
-    if (lat_dir == 'S') gps_data.latitude = -gps_data.latitude;
-    
-    float lon_deg = atof(lon_str) / 100.0f;
-    float lon_min = fmod(atof(lon_str), 100.0f);
-    gps_data.longitude = lon_deg + (lon_min / 60.0f);
-    if (lon_dir == 'W') gps_data.longitude = -gps_data.longitude;
-    
-    gps_data.numSatellites = numSats;
-    gps_data.hdop = hdop;
-    gps_data.altitude = altitude;
-    gps_data.accuracy_m = hdop * 2.5f;
-    
-    gps_data.hasValidData = true;
-    gps_data.lastUpdate = millis();
-    gps_data.lastValidFix = millis();
-    gps_data.nmea_count++;
+
+    double latitude = hasCoordinates ? nmea_parse_coordinate(fields[2], fields[3][0], true) : 0.0;
+    double longitude = hasCoordinates ? nmea_parse_coordinate(fields[4], fields[5][0], false) : 0.0;
+
+    if (lock_shared_data()) {
+        gps_data.fixQuality = fixQuality;
+        gps_data.hasRTKFix = hasRTKFix;
+        if (hasCoordinates) {
+            gps_data.latitude = latitude;
+            gps_data.longitude = longitude;
+        }
+        gps_data.numSatellites = numSats;
+        gps_data.hdop = hdop;
+        gps_data.altitude = altitude;
+        gps_data.accuracy_m = hdop * 2.5f;
+        gps_data.hasValidData = true;
+        gps_data.lastUpdate = millis();
+        gps_data.lastValidFix = millis();
+        gps_data.nmea_count++;
+        unlock_shared_data();
+    }
     
     if (DEBUG_LEVEL >= 2) {
         Serial.print("[GPS-GGA] Fix=");
-        Serial.print((int)gps_data.fixQuality);
+        Serial.print((int)fixQuality);
         Serial.print(" Sats=");
         Serial.print(numSats);
         Serial.print(" HDOP=");
@@ -271,22 +326,22 @@ bool parse_nmea_gga(const char *sentence) {
 }
 
 bool parse_nmea_gst(const char *sentence) {
-    char time[16];
-    float rms, std_lat, std_lon, std_alt;
-    
-    int parsed = sscanf(sentence, "$GPGST,%[^,],%f,%f,%f,%f",
-                        time, &rms, &std_lat, &std_lon, &std_alt);
-    
-    // Also try GNGST
-    if (parsed < 5) {
-        parsed = sscanf(sentence, "$GNGST,%[^,],%f,%f,%f,%f",
-                        time, &rms, &std_lat, &std_lon, &std_alt);
+    char fields[20][20];
+    int field_count = 0;
+    if (!nmea_split_fields(sentence, fields, 20, field_count) || field_count < 5) {
+        return false;
     }
-    
-    if (parsed < 5) return false;
-    
-    gps_data.accuracy_m = std_lat;
-    gps_data.nmea_count++;
+
+    if (!nmea_sentence_is(fields[0], "GST")) {
+        return false;
+    }
+
+    float std_lat = (fields[2][0] == '\0') ? 0.0f : atof(fields[2]);
+    if (lock_shared_data()) {
+        gps_data.accuracy_m = std_lat;
+        gps_data.nmea_count++;
+        unlock_shared_data();
+    }
     
     return true;
 }
@@ -403,11 +458,17 @@ bool gps_read() {
         if (c == '$') {
             gps_buffer_index = 0;
             gps_buffer[gps_buffer_index++] = c;
+            gps_in_frame = true;
+        } else if (!gps_in_frame) {
+            continue;
         } else if ((c == '\n' || c == '\r') && gps_buffer_index > 0) {
             gps_buffer[gps_buffer_index] = '\0';
             
             if (!verify_nmea_checksum((const char *)gps_buffer)) {
-                gps_data.crc_errors++;
+                if (lock_shared_data()) {
+                    gps_data.crc_errors++;
+                    unlock_shared_data();
+                }
             } else {
                 const char *sentence = (const char *)gps_buffer;
                 
@@ -421,12 +482,19 @@ bool gps_read() {
             }
             
             gps_buffer_index = 0;
+            gps_in_frame = false;
         } else if (gps_buffer_index < GPS_NMEA_BUFFER_SIZE - 1) {
             gps_buffer[gps_buffer_index++] = c;
+        } else {
+            gps_buffer_index = 0;
+            gps_in_frame = false;
         }
     }
     
-    gps_data.readCount++;
+    if (lock_shared_data()) {
+        gps_data.readCount++;
+        unlock_shared_data();
+    }
     return dataAvailable;
 }
 
@@ -435,25 +503,32 @@ bool gps_read() {
 // ============================================
 
 GPSData gps_get_data() {
+    if (lock_shared_data()) {
+        GPSData data = gps_data;
+        unlock_shared_data();
+        return data;
+    }
     return gps_data;
 }
 
 bool gps_has_fix() {
-    return (gps_data.fixQuality != FIX_NONE) && 
-           (millis() - gps_data.lastValidFix < GPS_FIX_TIMEOUT);
+    GPSData data = gps_get_data();
+    return (data.fixQuality != FIX_NONE) && 
+           (millis() - data.lastValidFix < GPS_FIX_TIMEOUT);
 }
 
 bool gps_has_rtk_fix() {
-    return (gps_data.fixQuality == FIX_RTK) && 
-           (millis() - gps_data.lastValidFix < GPS_RTK_TIMEOUT);
+    GPSData data = gps_get_data();
+    return (data.fixQuality == FIX_RTK) && 
+           (millis() - data.lastValidFix < GPS_RTK_TIMEOUT);
 }
 
 float gps_get_accuracy() {
-    return gps_data.accuracy_m;
+    return gps_get_data().accuracy_m;
 }
 
 float gps_get_age_of_fix() {
-    return (millis() - gps_data.lastUpdate) / 1000.0f;
+    return (millis() - gps_get_data().lastUpdate) / 1000.0f;
 }
 
 const char* gps_get_protocol_name() {
@@ -472,16 +547,17 @@ const char* gps_get_device_name() {
 // ============================================
 
 void gps_print_status() {
+    GPSData data = gps_get_data();
     Serial.println("\n[GPS] Status Report:");
     Serial.println("======================================");
     
     Serial.print("Position: ");
-    Serial.print(gps_data.latitude, 7);
+    Serial.print(data.latitude, 7);
     Serial.print(" / ");
-    Serial.println(gps_data.longitude, 7);
+    Serial.println(data.longitude, 7);
     
     Serial.print("Fix: ");
-    switch (gps_data.fixQuality) {
+    switch (data.fixQuality) {
         case FIX_NONE: Serial.println("No Fix"); break;
         case FIX_GPS: Serial.println("GPS"); break;
         case FIX_DGPS: Serial.println("DGPS"); break;
@@ -490,17 +566,17 @@ void gps_print_status() {
     }
     
     Serial.print("Satellites: ");
-    Serial.print(gps_data.numSatellites);
+    Serial.print(data.numSatellites);
     Serial.print(" | HDOP: ");
-    Serial.print(gps_data.hdop, 1);
+    Serial.print(data.hdop, 1);
     Serial.print(" | Accuracy: ");
-    Serial.print(gps_data.accuracy_m, 2);
+    Serial.print(data.accuracy_m, 2);
     Serial.println(" m");
     
     Serial.print("Speed: ");
-    Serial.print(gps_data.speed_kmh, 1);
+    Serial.print(data.speed_kmh, 1);
     Serial.print(" km/h | Heading: ");
-    Serial.print(gps_data.heading, 1);
+    Serial.print(data.heading, 1);
     Serial.println("°");
     
     Serial.print("Protocol: ");
@@ -512,9 +588,9 @@ void gps_print_status() {
     Serial.println();
     
     Serial.print("Parsed: ");
-    Serial.print(gps_data.nmea_count);
+    Serial.print(data.nmea_count);
     Serial.print(" NMEA | CRC errors: ");
-    Serial.println(gps_data.crc_errors);
+    Serial.println(data.crc_errors);
     
     Serial.println("======================================\n");
 }

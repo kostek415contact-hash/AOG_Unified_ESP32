@@ -23,6 +23,7 @@ char VersionTXT[120] = " - Unified AOG Controller ESP32-S3 (Universal GPS)";
 #include "config/pins_config.h"
 #include "config/gps_config.h"
 #include "config/settings.h"
+#include "config/thread_safety.h"
 
 // ============================================
 // LIBRARIES
@@ -81,7 +82,7 @@ struct IMUData {
     float pitch = 0.0f;
     bool dataReady = false;
     unsigned long lastUpdate = 0;
-} imu1_data, imu2_data;
+} mainImu1Data, mainImu2Data;
 
 // Autosteer data
 struct AutosteerData {
@@ -115,9 +116,6 @@ TaskHandle_t taskHandle_Sections = NULL;
 // INSTANCES
 // ============================================
 
-AsyncUDP wifiUDP;
-EthernetUDP ethUDP;
-WebServer webServer(80);
 Adafruit_BNO08x imu1(50);
 Adafruit_BNO08x imu2(50);
 Adafruit_ADS1115 ads;
@@ -157,6 +155,7 @@ void setup() {
     Serial.println(" =====");
     Serial.println(VersionTXT);
     Serial.println("[SETUP] Universal GPS with auto-detect enabled");
+    thread_safety_init();
 
     // Restore settings from EEPROM
     Serial.println("[SETUP] Loading settings from EEPROM...");
@@ -270,7 +269,12 @@ void initSensors() {
     Serial.print("  [INFO] Initializing BNO085 #1 (0x");
     Serial.print(IMU1_BNO085_ADDR, HEX);
     Serial.println(")...");
-    if (!imu1.begin_I2C(IMU1_BNO085_ADDR)) {
+    bool imu1Found = false;
+    if (lock_i2c()) {
+        imu1Found = imu1.begin_I2C(IMU1_BNO085_ADDR);
+        unlock_i2c();
+    }
+    if (!imu1Found) {
         Serial.println("    ERROR: BNO085 #1 not found!");
     } else {
         Serial.println("    OK: BNO085 #1 detected");
@@ -283,7 +287,12 @@ void initSensors() {
     Serial.print("  [INFO] Initializing BNO085 #2 (0x");
     Serial.print(IMU2_BNO085_ADDR, HEX);
     Serial.println(")...");
-    if (!imu2.begin_I2C(IMU2_BNO085_ADDR)) {
+    bool imu2Found = false;
+    if (lock_i2c()) {
+        imu2Found = imu2.begin_I2C(IMU2_BNO085_ADDR);
+        unlock_i2c();
+    }
+    if (!imu2Found) {
         Serial.println("    ERROR: BNO085 #2 not found!");
     } else {
         Serial.println("    OK: BNO085 #2 detected");
@@ -294,7 +303,12 @@ void initSensors() {
 
     // Initialize ADS1115
     Serial.println("  [INFO] Initializing ADS1115...");
-    if (!ads.begin(ADC_ADS1115_ADDR)) {
+    bool adcFound = false;
+    if (lock_i2c()) {
+        adcFound = ads.begin(ADC_ADS1115_ADDR);
+        unlock_i2c();
+    }
+    if (!adcFound) {
         Serial.println("    ERROR: ADS1115 not found!");
     } else {
         Serial.println("    OK: ADS1115 detected");
@@ -376,12 +390,14 @@ void task_ReadGPS(void *pvParameters) {
     while (1) {
         if (gps_read()) {
             GPSData current_gps = gps_get_data();
-
-            gpsLatitude = current_gps.latitude;
-            gpsLongitude = current_gps.longitude;
-            gpsSpeed = current_gps.speed_kmh;
-            gpsHeading = current_gps.heading;
-            gpsQuality = (int)current_gps.fixQuality;
+            if (lock_shared_data()) {
+                gpsLatitude = current_gps.latitude;
+                gpsLongitude = current_gps.longitude;
+                gpsSpeed = current_gps.speed_kmh;
+                gpsHeading = current_gps.heading;
+                gpsQuality = (int)current_gps.fixQuality;
+                unlock_shared_data();
+            }
 
             if (DEBUG_LEVEL >= 2) {
                 Serial.print("[GPS] Fix:");
@@ -413,7 +429,12 @@ void task_ReadIMU(void *pvParameters) {
         // Read IMU data
         sh2_SensorValue_t event;
 
-        if (imu1.getSensorEvent(&event)) {
+        bool gotEvent = false;
+        if (lock_i2c()) {
+            gotEvent = imu1.getSensorEvent(&event);
+            unlock_i2c();
+        }
+        if (gotEvent) {
             if (event.sensorId == SH2_GAME_ROTATION_VECTOR) {
                 float qw = event.un.gameRotationVector.real;
                 float qx = event.un.gameRotationVector.i;
@@ -423,19 +444,25 @@ void task_ReadIMU(void *pvParameters) {
                 // Convert quaternion to Euler angles
                 float sinr_cosp = 2 * (qw * qx + qy * qz);
                 float cosr_cosp = 1 - 2 * (qx * qx + qy * qy);
-                imu1_data.roll = atan2(sinr_cosp, cosr_cosp) * 57.2958f;
+                float roll = atan2(sinr_cosp, cosr_cosp) * 57.2958f;
 
                 float sinp = sqrt(1 + 2 * (qw * qy - qz * qx));
                 float cosp = sqrt(1 - 2 * (qw * qy - qz * qx));
-                imu1_data.pitch = 2 * atan2(sinp, cosp) * 57.2958f - 90;
+                float pitch = 2 * atan2(sinp, cosp) * 57.2958f - 90;
 
                 float siny_cosp = 2 * (qw * qz + qx * qy);
                 float cosy_cosp = 1 - 2 * (qy * qy + qz * qz);
-                imu1_data.heading = atan2(siny_cosp, cosy_cosp) * 57.2958f;
-                if (imu1_data.heading < 0) imu1_data.heading += 360;
+                float heading = atan2(siny_cosp, cosy_cosp) * 57.2958f;
+                if (heading < 0) heading += 360;
 
-                imu1_data.dataReady = true;
-                imu1_data.lastUpdate = millis();
+                if (lock_shared_data()) {
+                    mainImu1Data.roll = roll;
+                    mainImu1Data.pitch = pitch;
+                    mainImu1Data.heading = heading;
+                    mainImu1Data.dataReady = true;
+                    mainImu1Data.lastUpdate = millis();
+                    unlock_shared_data();
+                }
             }
         }
 
@@ -487,14 +514,10 @@ void task_ReadDataFromAOG(void *pvParameters) {
 
     while (1) {
         if (ethConnected) {
-            int packetSize = ethUDP.parsePacket();
-            if (packetSize > 0) {
-                byte buffer[256];
-                int len = ethUDP.read(buffer, sizeof(buffer));
-
-                if (buffer[0] == 0x80 && buffer[1] == 0x81) {
-                    lastDataTime = millis();
-                }
+            byte buffer[256];
+            int len = ethernet_receive_data(buffer, sizeof(buffer));
+            if (len > 1 && buffer[0] == 0x80 && buffer[1] == 0x81) {
+                lastDataTime = millis();
             }
         }
 

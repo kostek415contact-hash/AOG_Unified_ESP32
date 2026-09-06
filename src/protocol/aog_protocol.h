@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "../config/config.h"
+#include "../connectivity/network_manager.h"
 
 // ============================================
 // PROTOCOL CONSTANTS
@@ -384,6 +385,25 @@ int aog_build_diagnostic_packet(uint32_t uptime, uint16_t freeRam, uint8_t statu
 // SEND PACKETS
 // ============================================
 
+bool aog_send_buffer(byte *buffer, int len) {
+    bool sent = false;
+    if (network_is_connected()) {
+        sent = network_send_data(buffer, len);
+    }
+
+    if (!sent) {
+        size_t written = Serial.write(buffer, len);
+        sent = (written == (size_t)len);
+    }
+
+    if (sent) {
+        aog_state.packetsSent++;
+        aog_state.lastPacketTime = millis();
+    }
+
+    return sent;
+}
+
 void aog_send_autosteer_data(float steerAngle, float headingError, uint8_t pwm, bool direction) {
     int pktLen = aog_build_autosteer_packet(steerAngle, headingError, pwm, direction);
     
@@ -393,11 +413,7 @@ void aog_send_autosteer_data(float steerAngle, float headingError, uint8_t pwm, 
         Serial.println(" bytes)...");
     }
     
-    // Would send via Serial/WiFi/Ethernet here
-    // Serial.write(aog_state.autosteerBuffer, pktLen);
-    
-    aog_state.packetsSent++;
-    aog_state.lastPacketTime = millis();
+    aog_send_buffer(aog_state.autosteerBuffer, pktLen);
 }
 
 void aog_send_gps_data(double latitude, double longitude, float speed, float heading,
@@ -410,10 +426,7 @@ void aog_send_gps_data(double latitude, double longitude, float speed, float hea
         Serial.println(" bytes)...");
     }
     
-    // Would send via Serial/WiFi/Ethernet here
-    
-    aog_state.packetsSent++;
-    aog_state.lastPacketTime = millis();
+    aog_send_buffer(aog_state.gpsBuffer, pktLen);
 }
 
 void aog_send_imu_data(float heading, float roll, float pitch, uint8_t calibStatus) {
@@ -425,10 +438,7 @@ void aog_send_imu_data(float heading, float roll, float pitch, uint8_t calibStat
         Serial.println(" bytes)...");
     }
     
-    // Would send via Serial/WiFi/Ethernet here
-    
-    aog_state.packetsSent++;
-    aog_state.lastPacketTime = millis();
+    aog_send_buffer(aog_state.imuBuffer, pktLen);
 }
 
 void aog_send_section_data(uint16_t sectionStates, uint8_t mainSwitch) {
@@ -440,10 +450,7 @@ void aog_send_section_data(uint16_t sectionStates, uint8_t mainSwitch) {
         Serial.println(" bytes)...");
     }
     
-    // Would send via Serial/WiFi/Ethernet here
-    
-    aog_state.packetsSent++;
-    aog_state.lastPacketTime = millis();
+    aog_send_buffer(aog_state.sectionBuffer, pktLen);
 }
 
 void aog_send_diagnostic_data(uint32_t uptime, uint16_t freeRam, uint8_t status) {
@@ -455,10 +462,7 @@ void aog_send_diagnostic_data(uint32_t uptime, uint16_t freeRam, uint8_t status)
         Serial.println(" bytes)...");
     }
     
-    // Would send via Serial/WiFi/Ethernet here
-    
-    aog_state.packetsSent++;
-    aog_state.lastPacketTime = millis();
+    aog_send_buffer(aog_state.diagnosticBuffer, pktLen);
 }
 
 // ============================================
