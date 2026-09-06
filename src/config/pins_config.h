@@ -13,7 +13,6 @@
 // UART - SERIAL
 // ============================================
 
-#define SERIAL_BAUD 115200
 #define SERIAL_RX_PIN 44  // USB RX
 #define SERIAL_TX_PIN 43  // USB TX
 
@@ -22,23 +21,12 @@
 // ============================================
 
 #define GPS_UART_NUM 1
-#define GPS_RX_PIN 5      // RX1
-#define GPS_TX_PIN 4      // TX1
-#define GPS_BAUD 460800   // LG290P
+#define GPS_RX 5      // RX1
+#define GPS_TX 4      // TX1
 
 // ============================================
 // I2C - CZUJNIKI (DUAL IMU!)
 // ============================================
-
-#define I2C_SDA_PIN 7     // I2C SDA
-#define I2C_SCL_PIN 8     // I2C SCL
-#define I2C_FREQ 400000   // 400kHz
-
-// Adresy I2C
-#define IMU1_BNO085_ADDR 0x4A         // IMU #1 - Główny
-#define IMU2_BNO085_ADDR 0x4B         // IMU #2 - Czujnik skrętu osi
-#define GPIO_EXPANDER_MCP23017_ADDR 0x20  // A0,A1,A2 = GND
-#define ADC_ADS1115_ADDR 0x48             // ADDR = GND
 
 // I2C int pins (opcjonalnie)
 #define IMU1_INT_PIN 34   // Interrupt IMU #1 (input only)
@@ -59,8 +47,6 @@
 // PWM - SILNIK KIEROWANIA
 // ============================================
 
-#define MOTOR_PWM_PIN 2       // PWM1
-#define MOTOR_DIR_PIN 3       // Kierunek
 #define MOTOR_PWM_FREQ 500    // Hz
 #define MOTOR_PWM_CHANNEL 0   // PWM channel
 
@@ -68,7 +54,6 @@
 // ANALOG INPUT - CZUJNIK PRĄDU
 // ============================================
 
-#define CURRENT_SENSOR_PIN 1  // GPIO 1 - ADC1_CH0
 #define CURRENT_SENSOR_RESOLUTION 12  // 12-bit ADC
 
 // ============================================
@@ -95,7 +80,7 @@
 // Button WIFI RESCAN
 // ============================================
 
-#define BUTTON_WIFI_RESCAN_PIN_CORRECTED 14  // Przycisk WiFi rescan
+#define BUTTON_WIFI_RESCAN_PIN 14  // Przycisk WiFi rescan
 
 // ============================================
 // PODSUMOWANIE WOLNYCH PINÓW
