@@ -13,8 +13,8 @@
 
 #define GPS_AUTO_DETECT    true         // Auto-detect protocol & baud
 #define GPS_UART_PORT      1            // 0=Serial, 1=Serial1, 2=Serial2
-#define GPS_RX_PIN         17           // Default RX pin
-#define GPS_TX_PIN         18           // Default TX pin
+#define GPS_RX_PIN         5            // RX from pins_config.h
+#define GPS_TX_PIN         4            // TX from pins_config.h
 
 // Baud rate priorities (tries in order)
 #define GPS_BAUD_PRIMARY   460800       // LG290P default
