@@ -3,7 +3,7 @@
 // Unified AgOpenGPS Controller for ESP32-S3
 // ============================================
 // Combined functionality:
-// - GPS/GNSS RTK (LG290P)
+// - GPS/GNSS RTK (Universal: LG290P, UBlox, Septentrio, etc.)
 // - Dual IMU (BNO085 x2)
 // - Autosteer control
 // - Section control (16 sections)
@@ -12,8 +12,8 @@
 
 // Version
 byte VERSION_MAJOR = 1;
-byte VERSION_MINOR = 0;
-char VersionTXT[120] = " - Unified AOG Controller ESP32-S3";
+byte VERSION_MINOR = 1;
+char VersionTXT[120] = " - Unified AOG Controller ESP32-S3 (Universal GPS)";
 
 // ============================================
 // INCLUDES & CONFIGURATION
@@ -21,11 +21,12 @@ char VersionTXT[120] = " - Unified AOG Controller ESP32-S3";
 
 #include "config/config.h"
 #include "config/pins_config.h"
+#include "config/gps_config.h"
 #include "config/settings.h"
 #include "connectivity/ethernet_handler.h"
 #include "connectivity/wifi_handler.h"
 #include "connectivity/network_manager.h"
-#include "sensors/gps_handler.h"
+#include "sensors/gps_universal.h"
 #include "sensors/imu_handler.h"
 #include "protocol/aog_protocol.h"
 #include "control/autosteer_handler.h"
@@ -138,6 +139,7 @@ void setup() {
     Serial.print(VERSION_MINOR);
     Serial.println(" =====");
     Serial.println(VersionTXT);
+    Serial.println("[SETUP] Universal GPS Module (Auto-detect enabled)");
 
     // Initialize GPIO pins
     Serial.println("[SETUP] Initializing GPIO pins...");
@@ -269,18 +271,53 @@ void task_WiFiConnect(void *pvParameters) {
 }
 
 // ============================================
-// GPS READING TASK
+// GPS READING TASK (UNIVERSAL - Auto-detect)
 // ============================================
 
 void task_ReadGPS(void *pvParameters) {
     Serial.println("[TASK] GPS reading task started");
-    Serial1.begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
-    gps_init();
+    
+    // Initialize universal GPS handler
+    // Auto-detect is enabled in gps_config.h
+    if (!gps_init()) {
+        Serial.println("[GPS] Initialization failed!");
+    }
+    
+    Serial.print("[GPS] Protocol: ");
+    Serial.println(gps_get_protocol_name());
+    Serial.print("[GPS] Baud: ");
+    Serial.print(gps_state.baud_rate);
+    if (gps_state.auto_detected) {
+        Serial.println(" (auto-detected)");
+    } else {
+        Serial.println(" (manual config)");
+    }
 
     while (1) {
-        if (Serial1.available()) {
-            gps_process_byte(Serial1.read());
+        // Read and parse GPS data
+        if (gps_read()) {
+            // New GPS data available
+            GPSData current_gps = gps_get_data();
+            
+            // Update global variables
+            gpsLatitude = current_gps.latitude;
+            gpsLongitude = current_gps.longitude;
+            gpsSpeed = current_gps.speed_kmh;
+            gpsHeading = current_gps.heading;
+            gpsQuality = (int)current_gps.fixQuality;
+            
+            if (DEBUG_LEVEL >= 2) {
+                Serial.print("[GPS] Fix: ");
+                Serial.print((int)current_gps.fixQuality);
+                Serial.print(" | Lat: ");
+                Serial.print(current_gps.latitude, 6);
+                Serial.print(" | Lon: ");
+                Serial.print(current_gps.longitude, 6);
+                Serial.print(" | Sats: ");
+                Serial.println(current_gps.numSatellites);
+            }
         }
+        
         vTaskDelay(10);
     }
 }
@@ -297,6 +334,15 @@ void task_ReadIMU(void *pvParameters) {
 
     while (1) {
         imu_read();
+        
+        // Get fused IMU data
+        IMUSensorData fused = imu_get_fused_data();
+        imu1_data.heading = fused.heading;
+        imu1_data.roll = fused.roll;
+        imu1_data.pitch = fused.pitch;
+        imu1_data.dataReady = fused.dataReady;
+        imu1_data.lastUpdate = fused.lastUpdate;
+        
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
