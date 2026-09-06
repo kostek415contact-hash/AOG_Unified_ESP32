@@ -2,7 +2,7 @@
 // sensors/gps_universal.h
 // Universal GNSS Handler
 // Supports: NMEA (any GPS), UBX (UBlox), Auto-detect
-// Tested: LG290P, UBlox M10, Septentrio, generic NMEA
+// Tested: LG290P, UBlox, Septentrio, generic NMEA
 // ============================================
 
 #ifndef GPS_UNIVERSAL_H
@@ -27,7 +27,7 @@ enum GPSProtocol {
 enum GPSDevice {
     DEVICE_AUTO = 0,
     DEVICE_LG290P = 1,
-    DEVICE_UBLOX_M10 = 2,
+    DEVICE_UBLOX = 2,
     DEVICE_SEPTENTRIO = 3,
     DEVICE_TRIMBLE = 4,
     DEVICE_GENERIC = 5
