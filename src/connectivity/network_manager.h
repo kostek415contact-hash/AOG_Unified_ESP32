@@ -29,9 +29,7 @@ struct NetworkState {
     unsigned long ethernetFailTime = 0;
     bool ethernetFailed = false;
     IPAddress destIP;
-};
-
-static NetworkState netNetwork;
+} netNetwork;
 
 // ============================================
 // INITIALIZATION

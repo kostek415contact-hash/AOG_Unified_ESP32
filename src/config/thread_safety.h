@@ -6,14 +6,17 @@
 
 inline SemaphoreHandle_t i2cMutex = NULL;
 inline SemaphoreHandle_t sharedDataMutex = NULL;
+inline bool mutexesInitialized = false;
+inline portMUX_TYPE mutexInitMux = portMUX_INITIALIZER_UNLOCKED;
 
 inline void thread_safety_init() {
-    if (i2cMutex == NULL) {
+    portENTER_CRITICAL(&mutexInitMux);
+    if (!mutexesInitialized) {
         i2cMutex = xSemaphoreCreateMutex();
-    }
-    if (sharedDataMutex == NULL) {
         sharedDataMutex = xSemaphoreCreateMutex();
+        mutexesInitialized = true;
     }
+    portEXIT_CRITICAL(&mutexInitMux);
 }
 
 inline bool lock_i2c(TickType_t timeout = pdMS_TO_TICKS(50)) {

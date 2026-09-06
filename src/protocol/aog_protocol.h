@@ -243,7 +243,7 @@ struct AOGProtocolState {
     int rxBufferIndex = 0;
 };
 
-static AOGProtocolState aog_state;
+AOGProtocolState aog_state;
 
 // ============================================
 // PROTOCOL INITIALIZATION

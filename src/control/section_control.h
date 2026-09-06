@@ -25,7 +25,7 @@ struct SectionState {
     unsigned int errorCount = 0;
 };
 
-static SectionState sectionState;
+SectionState sectionState;
 
 bool mcp23017_write_register(uint8_t reg, uint8_t value) {
     if (!lock_i2c()) return false;

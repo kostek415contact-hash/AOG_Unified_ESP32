@@ -16,8 +16,8 @@ struct WebServerState {
     unsigned int requestsHandled = 0;
 };
 
-static WebServerState webServerState;
-static WebServer webServer(80);
+WebServerState webServerState;
+WebServer webServer(80);
 
 const char INDEX_HTML[] PROGMEM = R"(
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">

@@ -26,11 +26,11 @@ struct EthernetState {
     IPAddress dnsIP;
 };
 
-static EthernetState ethState;
-static EthernetUDP ethUdpServer;
-static EthernetUDP ethUdpClient;
+EthernetState ethState;
+EthernetUDP ethUdpServer;
+EthernetUDP ethUdpClient;
 
-static byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
+byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
 
 // ============================================
 // ETHERNET INITIALIZATION

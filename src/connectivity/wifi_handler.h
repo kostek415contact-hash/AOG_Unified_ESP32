@@ -26,8 +26,8 @@ struct WiFiState {
     IPAddress apIP = IPAddress(192, 168, 1, 1);
 };
 
-static WiFiState wifiState;
-static AsyncUDP wifiUDP;
+WiFiState wifiState;
+AsyncUDP wifiUDP;
 
 // WiFi networks from config
 const char* ssidList[] = {

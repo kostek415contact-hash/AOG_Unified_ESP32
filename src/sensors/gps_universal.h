@@ -97,14 +97,14 @@ struct GPSState {
 // GLOBAL STATE
 // ============================================
 
-static GPSData gps_data;
-static GPSState gps_state;
+GPSData gps_data;
+GPSState gps_state;
 
-static byte gps_buffer[GPS_NMEA_BUFFER_SIZE];
-static int gps_buffer_index = 0;
-static bool gps_in_frame = false;
+byte gps_buffer[GPS_NMEA_BUFFER_SIZE];
+int gps_buffer_index = 0;
+bool gps_in_frame = false;
 
-static HardwareSerial *gps_serial = NULL;
+HardwareSerial *gps_serial = NULL;
 
 // ============================================
 // UART SELECTION
@@ -195,6 +195,13 @@ bool nmea_split_fields(const char *sentence, char fields[][20], int max_fields, 
     return field_count > 0;
 }
 
+bool nmea_sentence_is(const char *type_token, const char *suffix3) {
+    if (type_token == NULL || suffix3 == NULL) return false;
+    size_t len = strlen(type_token);
+    if (len < 3) return false;
+    return strcmp(type_token + len - 3, suffix3) == 0;
+}
+
 double nmea_parse_coordinate(const char *value, char direction, bool is_latitude) {
     if (value == NULL || value[0] == '\0') return 0.0;
 
@@ -218,7 +225,7 @@ bool parse_nmea_rmc(const char *sentence) {
         return false;
     }
 
-    if (strstr(fields[0], "RMC") == NULL) {
+    if (!nmea_sentence_is(fields[0], "RMC")) {
         return false;
     }
 
@@ -263,7 +270,7 @@ bool parse_nmea_gga(const char *sentence) {
         return false;
     }
 
-    if (strstr(fields[0], "GGA") == NULL) {
+    if (!nmea_sentence_is(fields[0], "GGA")) {
         return false;
     }
 
@@ -321,7 +328,7 @@ bool parse_nmea_gst(const char *sentence) {
         return false;
     }
 
-    if (strstr(fields[0], "GST") == NULL) {
+    if (!nmea_sentence_is(fields[0], "GST")) {
         return false;
     }
 

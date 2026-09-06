@@ -62,19 +62,19 @@ struct IMUSensorData {
 // GLOBAL STATE
 // ============================================
 
-static Adafruit_BNO08x imu1_sensor;
-static Adafruit_BNO08x imu2_sensor;
-static sh2_SensorValue_t imu1_sensorValue;
-static sh2_SensorValue_t imu2_sensorValue;
+Adafruit_BNO08x imu1_sensor;
+Adafruit_BNO08x imu2_sensor;
+sh2_SensorValue_t imu1_sensorValue;
+sh2_SensorValue_t imu2_sensorValue;
 
-static IMUSensorData imu1_data;
-static IMUSensorData imu2_data;
-static IMUCalibration imu1_cal;
-static IMUCalibration imu2_cal;
+IMUSensorData imu1_data;
+IMUSensorData imu2_data;
+IMUCalibration imu1_cal;
+IMUCalibration imu2_cal;
 
-static bool imu1_initialized = false;
-static bool imu2_initialized = false;
-static unsigned long imu_init_time = 0;
+bool imu1_initialized = false;
+bool imu2_initialized = false;
+unsigned long imu_init_time = 0;
 
 // ============================================
 // QUATERNION TO EULER CONVERSION
