@@ -5,7 +5,7 @@
 ## 🏗️ Funkcjonalność
 
 - ✅ **Sterowanie sekcjami** (16 sekcji) - Section Control
-- ✅ **GPS/GNSS RTK** - LG290P z obsługą NTRIP
+- ✅ **GPS/GNSS RTK** - Obsługa różnych GPS
 - ✅ **Automatyczne sterowanie** (Autosteer) - silnik kierowania
 - ✅ **Czujnik orientacji** (IMU BNO085 #1) - heading + roll GPS
 - ✅ **Czujnik skrętu osi** (IMU BNO085 #2) - roll traktora
