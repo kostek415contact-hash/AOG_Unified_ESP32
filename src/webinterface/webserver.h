@@ -9,14 +9,15 @@
 #include <WebServer.h>
 #include "../config/config.h"
 #include "../config/pins_config.h"
+#include "../config/thread_safety.h"
 
 struct WebServerState {
     bool running = false;
     unsigned int requestsHandled = 0;
 };
 
-WebServerState webServerState;
-WebServer webServer(80);
+static WebServerState webServerState;
+static WebServer webServer(80);
 
 const char INDEX_HTML[] PROGMEM = R"(
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -96,14 +97,31 @@ void handle_root() {
 }
 
 void handle_status_json() {
+    float heading = 0.0f;
+    float roll = 0.0f;
+    float error = 0.0f;
+    byte pwmValue = 0;
+    uint16_t sections = 0;
+    bool eth = false;
+
+    if (lock_shared_data()) {
+        heading = imu1_data.heading;
+        roll = imu1_data.roll;
+        error = autosteer.heading_error;
+        pwmValue = autosteer.pwmValue;
+        sections = sectionState.currentState;
+        eth = ethConnected;
+        unlock_shared_data();
+    }
+
     String json = "{";
-    json += "\"eth\":" + String(ethConnected ? 1 : 0) + ",";
+    json += "\"eth\":" + String(eth ? 1 : 0) + ",";
     json += "\"sats\":12,";
-    json += "\"heading\":" + String(imu1_data.heading) + ",";
-    json += "\"roll\":" + String(imu1_data.roll) + ",";
-    json += "\"error\":" + String(autosteer.heading_error) + ",";
-    json += "\"pwm\":" + String(autosteer.pwmValue) + ",";
-    json += "\"sections\":" + String(sectionState.currentState);
+    json += "\"heading\":" + String(heading) + ",";
+    json += "\"roll\":" + String(roll) + ",";
+    json += "\"error\":" + String(error) + ",";
+    json += "\"pwm\":" + String(pwmValue) + ",";
+    json += "\"sections\":" + String(sections);
     json += "}";
     webServer.send(200, "application/json", json);
 }

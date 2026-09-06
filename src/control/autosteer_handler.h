@@ -92,9 +92,9 @@ struct AutosteerConfig {
 // GLOBAL STATE
 // ============================================
 
-PIDController pid;
-AutosteerState autosteer;
-AutosteerConfig autosteer_config;
+static PIDController pid;
+static AutosteerState autosteer;
+static AutosteerConfig autosteer_config;
 
 // ============================================
 // HEADING ERROR CALCULATION
