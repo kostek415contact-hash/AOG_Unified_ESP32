@@ -50,7 +50,7 @@ AOG_Unified_ESP32/
 │   │   ├── wifi_handler.h/.cpp        # Obsługa WiFi
 │   │   └── aog_protocol.h/.cpp        # Protokół AgOpenGPS
 │   ├── sensors/
-│   │   ├── gps_handler.h/.cpp         # LG290P GNSS
+│   │   ├── gps_universal.h/.cpp      # GPS
 │   │   ├── imu_handler.h/.cpp         # BNO085 IMU (2x)
 │   │   └── adc_handler.h/.cpp         # ADS1115
 │   ├── control/
