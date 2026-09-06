@@ -278,6 +278,8 @@ bool parse_nmea_gga(const char *sentence) {
     int numSats = (fields[7][0] == '\0') ? 0 : atoi(fields[7]);
     float hdop = (fields[8][0] == '\0') ? 999.9f : atof(fields[8]);
     float altitude = (fields[9][0] == '\0') ? 0.0f : atof(fields[9]);
+    bool hasCoordinates = (fields[2][0] != '\0' && fields[3][0] != '\0' &&
+                           fields[4][0] != '\0' && fields[5][0] != '\0');
 
     GPSFixQuality fixQuality = FIX_NONE;
     bool hasRTKFix = false;
@@ -290,14 +292,16 @@ bool parse_nmea_gga(const char *sentence) {
         default: return false;
     }
 
-    double latitude = nmea_parse_coordinate(fields[2], fields[3][0], true);
-    double longitude = nmea_parse_coordinate(fields[4], fields[5][0], false);
+    double latitude = hasCoordinates ? nmea_parse_coordinate(fields[2], fields[3][0], true) : 0.0;
+    double longitude = hasCoordinates ? nmea_parse_coordinate(fields[4], fields[5][0], false) : 0.0;
 
     if (lock_shared_data()) {
         gps_data.fixQuality = fixQuality;
         gps_data.hasRTKFix = hasRTKFix;
-        gps_data.latitude = latitude;
-        gps_data.longitude = longitude;
+        if (hasCoordinates) {
+            gps_data.latitude = latitude;
+            gps_data.longitude = longitude;
+        }
         gps_data.numSatellites = numSats;
         gps_data.hdop = hdop;
         gps_data.altitude = altitude;

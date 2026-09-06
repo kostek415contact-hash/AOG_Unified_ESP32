@@ -392,8 +392,8 @@ bool aog_send_buffer(byte *buffer, int len) {
     }
 
     if (!sent) {
-        Serial.write(buffer, len);
-        sent = true;
+        size_t written = Serial.write(buffer, len);
+        sent = (written == (size_t)len);
     }
 
     if (sent) {

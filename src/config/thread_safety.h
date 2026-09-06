@@ -14,7 +14,7 @@ inline void thread_safety_init() {
     if (!mutexesInitialized) {
         i2cMutex = xSemaphoreCreateMutex();
         sharedDataMutex = xSemaphoreCreateMutex();
-        mutexesInitialized = true;
+        mutexesInitialized = (i2cMutex != NULL && sharedDataMutex != NULL);
     }
     portEXIT_CRITICAL(&mutexInitMux);
 }
