@@ -1,7 +1,7 @@
 // ============================================
 // config/gps_config.h
 // Universal GPS Configuration
-// Supports: LG290P, UBlox M10, Septentrio, Trimble, etc.
+// Supports: LG290P, UBlox, Septentrio, Trimble, etc.
 // ============================================
 
 #ifndef GPS_CONFIG_H
@@ -18,9 +18,9 @@
 
 // Baud rate priorities (tries in order)
 #define GPS_BAUD_PRIMARY   460800       // LG290P default
-#define GPS_BAUD_SECONDARY 115200       // Common fallback
-#define GPS_BAUD_TERTIARY  38400        // UBlox M10 default
-#define GPS_BAUD_FALLBACK  9600         // Cheap GNSS receivers
+#define GPS_BAUD_SECONDARY 115200       
+#define GPS_BAUD_TERTIARY  38400        
+#define GPS_BAUD_FALLBACK  9600         
 
 // Auto-detect timeout
 #define GPS_AUTO_DETECT_TIMEOUT 3000    // 3 seconds per baud rate
@@ -32,7 +32,7 @@
 // Protocol: AUTO, NMEA, UBX
 #define GPS_PROTOCOL_FORCE PROTO_AUTO
 
-// Device: AUTO, LG290P, UBLOX_M10, SEPTENTRIO, TRIMBLE, OTHER
+// Device: AUTO, LG290P, UBLOX, SEPTENTRIO, TRIMBLE, OTHER
 #define GPS_DEVICE_FORCE DEVICE_AUTO
 
 // Manual baud if auto-detect disabled
@@ -46,9 +46,9 @@
 #define LG290P_BAUD 460800
 #define LG290P_PROTOCOL NMEA
 
-// UBlox M10T (RTK-capable alternative)
-#define UBLOX_M10_BAUD 38400
-#define UBLOX_M10_PROTOCOL UBX
+// UBlox (RTK-capable alternative)
+#define UBLOX_BAUD 38400
+#define UBLOX_PROTOCOL UBX
 
 // Septentrio (multi-constellation GNSS)
 #define SEPTENTRIO_BAUD 115200
