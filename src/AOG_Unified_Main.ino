@@ -89,13 +89,6 @@ const byte FromAOGSentenceHeader[3] = {0x80, 0x81, 0x7F};
 // TASK HANDLES (FreeRTOS)
 // ============================================
 
-#define TASK_STACK_SIZE_SMALL 2048
-#define TASK_STACK_SIZE_NORMAL 4096
-#define TASK_STACK_SIZE_LARGE 8192
-#define TASK_PRIORITY_LOW 1
-#define TASK_PRIORITY_NORMAL 2
-#define TASK_PRIORITY_HIGH 3
-
 TaskHandle_t taskHandle_Eth_connect = NULL;
 TaskHandle_t taskHandle_WiFi_connect = NULL;
 TaskHandle_t taskHandle_DataFromAOG = NULL;
@@ -155,6 +148,11 @@ void setup() {
     Serial.println("[SETUP] Initializing I2C sensors...");
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ);
     delay(100);
+
+    // Initialize IMU
+    if (!imu_init()) {
+        Serial.println("[IMU] Initialization failed!");
+    }
 
     // Initialize Ethernet
     Serial.println("[SETUP] Starting Ethernet...");
@@ -293,10 +291,6 @@ void task_ReadGPS(void *pvParameters) {
 
 void task_ReadIMU(void *pvParameters) {
     Serial.println("[TASK] IMU reading task started");
-
-    if (!imu_init()) {
-        Serial.println("[IMU] Initialization failed!");
-    }
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(100);  // 10 Hz
