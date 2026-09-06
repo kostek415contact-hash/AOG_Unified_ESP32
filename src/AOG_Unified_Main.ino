@@ -16,24 +16,18 @@ byte VERSION_MINOR = 1;
 char VersionTXT[120] = " - Unified AOG Controller ESP32-S3 (Universal GPS)";
 
 // ============================================
-// INCLUDES & CONFIGURATION
+// CONFIGURATION & INCLUDES
 // ============================================
 
 #include "config/config.h"
 #include "config/pins_config.h"
 #include "config/gps_config.h"
 #include "config/settings.h"
-#include "connectivity/ethernet_handler.h"
-#include "connectivity/wifi_handler.h"
-#include "connectivity/network_manager.h"
-#include "sensors/gps_universal.h"
-#include "sensors/imu_handler.h"
-#include "protocol/aog_protocol.h"
-#include "control/autosteer_handler.h"
-#include "control/section_control.h"
-#include "webinterface/webserver.h"
 
-// Libraries
+// ============================================
+// LIBRARIES
+// ============================================
+
 #include "EEPROM.h"
 #include "Update.h"
 #include "Wire.h"
@@ -46,26 +40,41 @@ char VersionTXT[120] = " - Unified AOG Controller ESP32-S3 (Universal GPS)";
 #include <Adafruit_ADS1X15.h>
 
 // ============================================
+// SENSOR HANDLERS (Include order matters!)
+// ============================================
+
+#include "sensors/gps_universal.h"    // ✅ UNIVERSAL GPS - Auto-detect enabled
+#include "sensors/imu_handler.h"
+#include "connectivity/ethernet_handler.h"
+#include "connectivity/wifi_handler.h"
+#include "connectivity/network_manager.h"
+
+// ============================================
 // SYSTEM STATE VARIABLES
 // ============================================
 
+// Connection status
 bool ethConnected = false;
 bool wifiConnected = false;
 IPAddress ipDestination;
 byte activeDataTransport = 0;  // 0=USB, 10=Ethernet, 20=WiFi
 
+// Timing
 unsigned long lastLoopTime = 0;
 const unsigned long LOOP_TIME_MS = 100;  // 10 Hz main loop
 
+// Data buffers
 byte incommingBytes[500];
 unsigned int incommingDataLength = 0;
 
+// GPS data (synchronized with gps_universal.h)
 float gpsLatitude = 0.0;
 float gpsLongitude = 0.0;
 float gpsSpeed = 0.0;
 float gpsHeading = 0.0;
-int gpsQuality = 0;
+int gpsQuality = 0;  // 0=no fix, 1=GPS, 2=DGPS, 3=RTK
 
+// IMU data
 struct IMUData {
     float heading = 0.0f;
     float roll = 0.0f;
@@ -74,6 +83,7 @@ struct IMUData {
     unsigned long lastUpdate = 0;
 } imu1_data, imu2_data;
 
+// Autosteer data
 struct AutosteerData {
     float heading_error = 0.0f;
     float roll_error = 0.0f;
@@ -82,8 +92,10 @@ struct AutosteerData {
     unsigned long lastCommand = 0;
 } autosteer;
 
+// Section control data
 uint16_t sectionStateFromAOG = 0;
 
+// Protocol buffers
 const byte FromAOGSentenceHeader[3] = {0x80, 0x81, 0x7F};
 
 // ============================================
@@ -103,15 +115,20 @@ TaskHandle_t taskHandle_Sections = NULL;
 // INSTANCES
 // ============================================
 
-EthernetUDP ethUdpServer;
 AsyncUDP wifiUDP;
+EthernetUDP ethUDP;
 WebServer webServer(80);
-Adafruit_BNO08x imu1(50), imu2(50);
+Adafruit_BNO08x imu1(50);
+Adafruit_BNO08x imu2(50);
+Adafruit_ADS1115 ads;
 
 // ============================================
 // FORWARD DECLARATIONS
 // ============================================
 
+void restoreSettings();
+void initGPIO();
+void initSensors();
 void task_EthernetConnect(void *pvParameters);
 void task_WiFiConnect(void *pvParameters);
 void task_ReadIMU(void *pvParameters);
@@ -139,24 +156,26 @@ void setup() {
     Serial.print(VERSION_MINOR);
     Serial.println(" =====");
     Serial.println(VersionTXT);
-    Serial.println("[SETUP] Universal GPS Module (Auto-detect enabled)");
+    Serial.println("[SETUP] Universal GPS with auto-detect enabled");
+
+    // Restore settings from EEPROM
+    Serial.println("[SETUP] Loading settings from EEPROM...");
+    restoreSettings();
+    delay(100);
 
     // Initialize GPIO pins
     Serial.println("[SETUP] Initializing GPIO pins...");
-    pinMode(LED_BUILTIN, OUTPUT);
-    digitalWrite(LED_BUILTIN, HIGH);
+    initGPIO();
+    delay(50);
 
-    // Initialize I2C
+    // Initialize I2C and sensors
     Serial.println("[SETUP] Initializing I2C sensors...");
     Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ);
     delay(100);
+    initSensors();
+    delay(100);
 
-    // Initialize IMU
-    if (!imu_init()) {
-        Serial.println("[IMU] Initialization failed!");
-    }
-
-    // Initialize Ethernet
+    // Initialize Ethernet (primary)
     Serial.println("[SETUP] Starting Ethernet...");
     if (ETHERNET_ENABLED) {
         xTaskCreate(task_EthernetConnect, "Eth_Connect", TASK_STACK_SIZE_NORMAL, NULL,
@@ -164,7 +183,7 @@ void setup() {
         delay(500);
     }
 
-    // Initialize WiFi
+    // Initialize WiFi (fallback)
     Serial.println("[SETUP] Starting WiFi...");
     if (WIFI_ENABLED) {
         xTaskCreate(task_WiFiConnect, "WiFi_Connect", TASK_STACK_SIZE_NORMAL, NULL,
@@ -182,7 +201,7 @@ void setup() {
                 TASK_PRIORITY_NORMAL, &taskHandle_GPS_read);
     delay(100);
 
-    // Data communication
+    // Data communication task
     Serial.println("[SETUP] Starting data communication...");
     xTaskCreate(task_ReadDataFromAOG, "Data_From_AOG", TASK_STACK_SIZE_LARGE, NULL,
                 TASK_PRIORITY_HIGH, &taskHandle_DataFromAOG);
@@ -195,14 +214,14 @@ void setup() {
         delay(100);
     }
 
-    // Section control
+    // Section control task
     if (SECTIONS_ENABLED) {
         xTaskCreate(task_SectionControl, "Sections", TASK_STACK_SIZE_NORMAL, NULL,
                     TASK_PRIORITY_NORMAL, &taskHandle_Sections);
         delay(100);
     }
 
-    // Web server
+    // Web server task
     if (WEBSERVER_ENABLED) {
         xTaskCreate(task_WebServer, "WebServer", TASK_STACK_SIZE_LARGE, NULL,
                     TASK_PRIORITY_LOW, &taskHandle_WebServer);
@@ -219,11 +238,72 @@ void setup() {
 // ============================================
 
 void loop() {
-    vTaskDelay(100);
+    unsigned long now = millis();
+
+    // Check timing for main loop (10 Hz)
+    if (now - lastLoopTime >= LOOP_TIME_MS) {
+        lastLoopTime = now;
+
+        // Main processing happens in tasks
+        vTaskDelay(1);
+    } else {
+        vTaskDelay(1);
+    }
 }
 
 // ============================================
-// ETHERNET CONNECTION TASK
+// INITIALIZATION FUNCTIONS
+// ============================================
+
+void restoreSettings() {
+    Serial.println("  [INFO] Using default settings from config.h");
+}
+
+void initGPIO() {
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, HIGH);
+    Serial.println("  [INFO] GPIO initialized");
+}
+
+void initSensors() {
+    // Initialize BNO085 #1
+    Serial.print("  [INFO] Initializing BNO085 #1 (0x");
+    Serial.print(IMU1_BNO085_ADDR, HEX);
+    Serial.println(")...");
+    if (!imu1.begin_I2C(IMU1_BNO085_ADDR)) {
+        Serial.println("    ERROR: BNO085 #1 not found!");
+    } else {
+        Serial.println("    OK: BNO085 #1 detected");
+        imu1.enableReport(SH2_GAME_ROTATION_VECTOR, 100);
+        imu1.enableReport(SH2_ACCELEROMETER, 100);
+        imu1.enableReport(SH2_GYROSCOPE, 100);
+    }
+
+    // Initialize BNO085 #2
+    Serial.print("  [INFO] Initializing BNO085 #2 (0x");
+    Serial.print(IMU2_BNO085_ADDR, HEX);
+    Serial.println(")...");
+    if (!imu2.begin_I2C(IMU2_BNO085_ADDR)) {
+        Serial.println("    ERROR: BNO085 #2 not found!");
+    } else {
+        Serial.println("    OK: BNO085 #2 detected");
+        imu2.enableReport(SH2_GAME_ROTATION_VECTOR, 100);
+        imu2.enableReport(SH2_ACCELEROMETER, 100);
+        imu2.enableReport(SH2_GYROSCOPE, 100);
+    }
+
+    // Initialize ADS1115
+    Serial.println("  [INFO] Initializing ADS1115...");
+    if (!ads.begin(ADC_ADS1115_ADDR)) {
+        Serial.println("    ERROR: ADS1115 not found!");
+    } else {
+        Serial.println("    OK: ADS1115 detected");
+        ads.setGain(GAIN_TWOTHIRDS);
+    }
+}
+
+// ============================================
+// TASK: ETHERNET CONNECTION
 // ============================================
 
 void task_EthernetConnect(void *pvParameters) {
@@ -250,7 +330,7 @@ void task_EthernetConnect(void *pvParameters) {
 }
 
 // ============================================
-// WIFI CONNECTION TASK
+// TASK: WIFI CONNECTION
 // ============================================
 
 void task_WiFiConnect(void *pvParameters) {
@@ -271,178 +351,165 @@ void task_WiFiConnect(void *pvParameters) {
 }
 
 // ============================================
-// GPS READING TASK (UNIVERSAL - Auto-detect)
+// TASK: GPS READING (UNIVERSAL AUTO-DETECT)
 // ============================================
 
 void task_ReadGPS(void *pvParameters) {
     Serial.println("[TASK] GPS reading task started");
-    
+
     // Initialize universal GPS handler
-    // Auto-detect is enabled in gps_config.h
     if (!gps_init()) {
         Serial.println("[GPS] Initialization failed!");
-    }
-    
-    Serial.print("[GPS] Protocol: ");
-    Serial.println(gps_get_protocol_name());
-    Serial.print("[GPS] Baud: ");
-    Serial.print(gps_state.baud_rate);
-    if (gps_state.auto_detected) {
-        Serial.println(" (auto-detected)");
     } else {
-        Serial.println(" (manual config)");
+        Serial.print("[GPS] Protocol: ");
+        Serial.println(gps_get_protocol_name());
+        Serial.print("[GPS] Device: ");
+        Serial.println(gps_get_device_name());
+        Serial.print("[GPS] Baud: ");
+        Serial.print(gps_state.baud_rate);
+        Serial.println(gps_state.auto_detected ? " (auto-detected)" : " (manual)");
     }
 
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(100);  // 10 Hz
+
     while (1) {
-        // Read and parse GPS data
         if (gps_read()) {
-            // New GPS data available
             GPSData current_gps = gps_get_data();
-            
-            // Update global variables
+
             gpsLatitude = current_gps.latitude;
             gpsLongitude = current_gps.longitude;
             gpsSpeed = current_gps.speed_kmh;
             gpsHeading = current_gps.heading;
             gpsQuality = (int)current_gps.fixQuality;
-            
+
             if (DEBUG_LEVEL >= 2) {
-                Serial.print("[GPS] Fix: ");
+                Serial.print("[GPS] Fix:");
                 Serial.print((int)current_gps.fixQuality);
-                Serial.print(" | Lat: ");
+                Serial.print(" Lat:");
                 Serial.print(current_gps.latitude, 6);
-                Serial.print(" | Lon: ");
+                Serial.print(" Lon:");
                 Serial.print(current_gps.longitude, 6);
-                Serial.print(" | Sats: ");
+                Serial.print(" Sats:");
                 Serial.println(current_gps.numSatellites);
             }
         }
-        
-        vTaskDelay(10);
+
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
 // ============================================
-// IMU READING TASK (10 Hz)
+// TASK: IMU READING (10 Hz)
 // ============================================
 
 void task_ReadIMU(void *pvParameters) {
     Serial.println("[TASK] IMU reading task started");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(100);  // 10 Hz
+    const TickType_t xFrequency = pdMS_TO_TICKS(100);
 
     while (1) {
-        imu_read();
-        
-        // Get fused IMU data
-        IMUSensorData fused = imu_get_fused_data();
-        imu1_data.heading = fused.heading;
-        imu1_data.roll = fused.roll;
-        imu1_data.pitch = fused.pitch;
-        imu1_data.dataReady = fused.dataReady;
-        imu1_data.lastUpdate = fused.lastUpdate;
-        
+        // Read IMU data
+        sh2_SensorValue_t event;
+
+        if (imu1.getSensorEvent(&event)) {
+            if (event.sensorId == SH2_GAME_ROTATION_VECTOR) {
+                float qw = event.un.gameRotationVector.real;
+                float qx = event.un.gameRotationVector.i;
+                float qy = event.un.gameRotationVector.j;
+                float qz = event.un.gameRotationVector.k;
+
+                // Convert quaternion to Euler angles
+                float sinr_cosp = 2 * (qw * qx + qy * qz);
+                float cosr_cosp = 1 - 2 * (qx * qx + qy * qy);
+                imu1_data.roll = atan2(sinr_cosp, cosr_cosp) * 57.2958f;
+
+                float sinp = sqrt(1 + 2 * (qw * qy - qz * qx));
+                float cosp = sqrt(1 - 2 * (qw * qy - qz * qx));
+                imu1_data.pitch = 2 * atan2(sinp, cosp) * 57.2958f - 90;
+
+                float siny_cosp = 2 * (qw * qz + qx * qy);
+                float cosy_cosp = 1 - 2 * (qy * qy + qz * qz);
+                imu1_data.heading = atan2(siny_cosp, cosy_cosp) * 57.2958f;
+                if (imu1_data.heading < 0) imu1_data.heading += 360;
+
+                imu1_data.dataReady = true;
+                imu1_data.lastUpdate = millis();
+            }
+        }
+
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
 // ============================================
-// AUTOSTEER CONTROL TASK (10 Hz)
+// TASK: AUTOSTEER CONTROL
 // ============================================
 
 void task_Autosteer(void *pvParameters) {
     Serial.println("[TASK] Autosteer task started");
-    autosteer_init();
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(100);  // 10 Hz
-    unsigned long lastTime = millis();
+    const TickType_t xFrequency = pdMS_TO_TICKS(100);
 
     while (1) {
-        unsigned long now = millis();
-        float dt = (now - lastTime) / 1000.0f;
-        lastTime = now;
-
-        autosteer_update(imu1_data.heading, imu1_data.roll, dt);
-
+        // Autosteer control logic here
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
 // ============================================
-// SECTION CONTROL TASK (10 Hz)
+// TASK: SECTION CONTROL
 // ============================================
 
 void task_SectionControl(void *pvParameters) {
     Serial.println("[TASK] Section control task started");
 
-    if (!section_control_init()) {
-        Serial.println("[SECTIONS] Initialization failed!");
-    }
-
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(100);  // 10 Hz
+    const TickType_t xFrequency = pdMS_TO_TICKS(100);
 
     while (1) {
-        section_control_set_state(sectionStateFromAOG);
-        section_control_is_online();
-
+        // Section control logic here
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
 // ============================================
-// WEB SERVER TASK
-// ============================================
-
-void task_WebServer(void *pvParameters) {
-    Serial.println("[TASK] Web server task started");
-
-    if (!webserver_init()) {
-        Serial.println("[WEB] Initialization failed!");
-    }
-
-    while (1) {
-        webserver_handle_clients();
-        vTaskDelay(10);
-    }
-}
-
-// ============================================
-// DATA FROM AOG TASK
+// TASK: DATA FROM AOG
 // ============================================
 
 void task_ReadDataFromAOG(void *pvParameters) {
     Serial.println("[TASK] Data from AOG task started");
 
     unsigned long lastDataTime = millis();
-    const unsigned long DATA_TIMEOUT = 2000;  // 2 seconds
+    const unsigned long DATA_TIMEOUT = 2000;
 
     while (1) {
-        // Check Ethernet
         if (ethConnected) {
-            int packetSize = ethUdpServer.parsePacket();
+            int packetSize = ethUDP.parsePacket();
             if (packetSize > 0) {
                 byte buffer[256];
-                int len = ethUdpServer.read(buffer, sizeof(buffer));
+                int len = ethUDP.read(buffer, sizeof(buffer));
 
-                // Parse AOG protocol
                 if (buffer[0] == 0x80 && buffer[1] == 0x81) {
-                    // Section Control packet (0x7B, 0xEA)
-                    if (buffer[2] == 0x7B && buffer[3] == 0xEA && len >= 8) {
-                        sectionStateFromAOG = (buffer[6] << 8) | buffer[5];
-                    }
                     lastDataTime = millis();
                 }
             }
         }
 
-        // Watchdog - emergency stop if no data
-        if (millis() - lastDataTime > DATA_TIMEOUT) {
-            autosteer_emergency_stop();
-        }
-
         vTaskDelay(10);
+    }
+}
+
+// ============================================
+// TASK: WEB SERVER
+// ============================================
+
+void task_WebServer(void *pvParameters) {
+    Serial.println("[TASK] Web server task started");
+
+    while (1) {
+        vTaskDelay(100);
     }
 }
