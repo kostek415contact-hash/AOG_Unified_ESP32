@@ -11,6 +11,12 @@
 #define VERSION_PATCH 0
 
 // ============================================
+// SERIAL - UART0 (USB)
+// ============================================
+
+#define SERIAL_BAUD 115200
+
+// ============================================
 // ŁĄCZNOŚĆ
 // ============================================
 
@@ -88,7 +94,6 @@ const char* WiFi_Passwords[] = {"YourPassword"};
 
 #define AOG_PORT 9999          // UDP port
 #define AOG_NTRIP_PORT 2101    // NTRIP port
-#define AOG_BAUD_RATE 115200   // Serial USB
 
 // ============================================
 // GPS/GNSS
@@ -98,6 +103,8 @@ const char* WiFi_Passwords[] = {"YourPassword"};
 #define GPS_TYPE_UBLOX 1       // 1=U-Blox F9P, 0=inny
 #define GPS_UART 1             // UART1
 #define GPS_BAUD 460800        // LG290P default
+#define GPS_RX 5               // GPIO 5
+#define GPS_TX 4               // GPIO 4
 #define GPS_NTRIP_ENABLED 1    // RTK corrections
 
 // ============================================
@@ -109,15 +116,23 @@ const char* WiFi_Passwords[] = {"YourPassword"};
 
 // IMU #1 - Główny (Heading + Roll z GPS)
 #define IMU1_TYPE_BNO085 1
-#define IMU1_I2C_ADDR 0x4A     // Default BNO085
+#define IMU1_BNO085_ADDR 0x4A  // Default BNO085
 #define IMU1_FUSION_MODE 9     // Full 9-DOF
 #define IMU1_ENABLED 1
 
 // IMU #2 - Czujnik skrętu osi
 #define IMU2_TYPE_BNO085 1
-#define IMU2_I2C_ADDR 0x4B     // Alternate address (ADDR pin high)
+#define IMU2_BNO085_ADDR 0x4B  // Alternate address (ADDR pin high)
 #define IMU2_FUSION_MODE 9     // Full 9-DOF
 #define IMU2_ENABLED 1
+
+// ============================================
+// I2C
+// ============================================
+
+#define I2C_SDA_PIN 7          // I2C SDA
+#define I2C_SCL_PIN 8          // I2C SCL
+#define I2C_FREQ 400000        // 400kHz
 
 // ============================================
 // STEROWANIE SEKCJAMI
@@ -125,7 +140,7 @@ const char* WiFi_Passwords[] = {"YourPassword"};
 
 #define SECTIONS_ENABLED 1
 #define SECTIONS_COUNT 16      // 16 sekcji
-#define SECTIONS_GPIO_EXPANDER_ADDR 0x20  // MCP23017
+#define GPIO_EXPANDER_MCP23017_ADDR 0x20  // MCP23017
 
 // ============================================
 // AUTOSTEER
